@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"io/ioutil"
+	"time"
 )
 
 func read_line(r *bufio.Reader) string {
@@ -27,12 +29,32 @@ func main() {
 	var username string
 	username = read_line(in)
 	fmt.Printf("<<%v>>\n", username)
+    post_url := "http://localhost:8080/messages/" + username
+
+	go func() {
+        for {
+            resp, err := client.Get(post_url)
+            if resp != nil {
+                bytes_message, _ := ioutil.ReadAll(resp.Body)
+                if len(bytes_message) > 0 {
+                    text_message := string(bytes_message)
+                    fmt.Println(text_message)
+            		fmt.Print("~ ")
+                }
+            } else {
+                fmt.Println("ERROR:", err)
+        		fmt.Print("~ ")
+            }
+            time.Sleep(time.Second)
+        }
+	}()
 
 	var to string
 
 	for {
 		var message string
 		fmt.Print("~ ")
+
 		message = read_line(in)
 		if message == "/q" {
 			break
@@ -49,16 +71,13 @@ func main() {
 			continue
 		}
 
-		post_url := "http://localhost:8080/messages"
-
 		req, _ := http.NewRequest("POST", post_url, strings.NewReader(message))
-		req.Header.Add("Chat-From", username)
+		req.Header.Add("Chat-From", username)  // this is reduntant
 		req.Header.Add("Chat-To", to)
 
 		_, err := client.Do(req)
 		if err != nil {
-			log.Println(err)
+			log.Println("ERROR: ", err)
 		}
-		fmt.Println(post_url)
 	}
 }
