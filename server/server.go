@@ -8,17 +8,45 @@ import (
     "io/ioutil"
 )
 
+type message struct {
+    from string
+    to string
+    content string
+}
+
+type user_message struct {
+    from string
+    content string
+}
+
 func main() {
     log.Println("Starting server")
 
-    // http.Handle("/foo", fooHandler)
+    all_incoming := make(chan message, 10)
+    user_messages := make(map[string](chan user_message))
+    go func() {
+        for {
+            msg := <- all_incoming
+            log.Println(fmt.Sprintf("%v -> %v: %v",
+                msg.from,
+                msg.to,
+                msg.content))
+            user_channel, ok := user_messages[msg.to]
+            if !ok {
+                user_channel = make(chan user_message, 100)
+                user_messages[msg.to] = user_channel
+            }
+            user_channel <- user_message{msg.from, msg.content}
+        }
+    }()
 
     http.HandleFunc("/messages", func(w http.ResponseWriter, r *http.Request) {
         message_bytes, _ := ioutil.ReadAll(r.Body)
-        log.Println(fmt.Sprintf("%v -> %v: %v",
-            r.Header["Chat-From"],
-            r.Header["Chat-To"],
-            string(message_bytes)))
+        msg := message{
+            r.Header.Get("Chat-From"),
+            r.Header.Get("Chat-To"),
+            string(message_bytes)}
+        all_incoming <- msg
     })
 
     log.Fatal(http.ListenAndServe(":8080", nil))
