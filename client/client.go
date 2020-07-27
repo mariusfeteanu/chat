@@ -2,12 +2,13 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"strings"
-	"io/ioutil"
 	"time"
 )
 
@@ -23,30 +24,33 @@ func read_line(r *bufio.Reader) string {
 func main() {
 	in := bufio.NewReader(os.Stdin)
 	log.Println("Starting client")
-	client := &http.Client{}
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, ForceAttemptHTTP2: true,
+	}
+	client := &http.Client{Transport: tr}
 
 	fmt.Print("username: ")
 	var username string
 	username = read_line(in)
 	fmt.Printf("<<%v>>\n", username)
-    post_url := "http://localhost:8080/messages/" + username
+	post_url := "https://localhost:8080/messages/" + username
 
 	go func() {
-        for {
-            resp, err := client.Get(post_url)
-            if resp != nil {
-                bytes_message, _ := ioutil.ReadAll(resp.Body)
-                if len(bytes_message) > 0 {
-                    text_message := string(bytes_message)
-                    fmt.Println(text_message)
-            		fmt.Print("~ ")
-                }
-            } else {
-                fmt.Println("ERROR:", err)
-        		fmt.Print("~ ")
-            }
-            time.Sleep(time.Second)
-        }
+		for {
+			resp, err := client.Get(post_url)
+			if resp != nil {
+				bytes_message, _ := ioutil.ReadAll(resp.Body)
+				if len(bytes_message) > 0 {
+					text_message := string(bytes_message)
+					fmt.Println(text_message)
+					fmt.Print("~ ")
+				}
+			} else {
+				fmt.Println("ERROR:", err)
+				fmt.Print("~ ")
+			}
+			time.Sleep(time.Second)
+		}
 	}()
 
 	var to string
@@ -72,7 +76,7 @@ func main() {
 		}
 
 		req, _ := http.NewRequest("POST", post_url, strings.NewReader(message))
-		req.Header.Add("Chat-From", username)  // this is reduntant
+		req.Header.Add("Chat-From", username) // this is reduntant
 		req.Header.Add("Chat-To", to)
 
 		_, err := client.Do(req)
