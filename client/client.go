@@ -17,7 +17,7 @@ func main() {
 	// user info
 	var username string
 	read_line := func(r *bufio.Reader, prompt ...string) string {
-		fmt.Printf("%v | ", username)
+		fmt.Printf("%v |> ", username)
 		for _, p := range prompt {
 			fmt.Print(p)
 		}
@@ -47,7 +47,7 @@ func main() {
 			b := make([]byte, 1024)
 			n, _ := resp.Body.Read(b)
 			if n > 0 {
-				fmt.Println("~ " + string(b))
+				fmt.Printf("\n%v%v |> ", string(b), username)
 			}
 		}
 	}()

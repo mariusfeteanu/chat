@@ -60,7 +60,8 @@ func main() {
 				user_channel := hope_user_channel.(chan user_message)
 				select {
 				case msg := <-user_channel:
-					text_message := "[" + msg.from + "]: " + msg.content
+					log.Println("[" + username + "] <- [" + msg.from + "]")
+					text_message := msg.from + " |< " + msg.content + "\n"
 					w.Write([]byte(text_message))
 					flusher.Flush()
 				default:
