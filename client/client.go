@@ -4,60 +4,58 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"strings"
-	"time"
 )
-
-func read_line(r *bufio.Reader) string {
-	line, err := r.ReadString('\n')
-	if err == nil {
-		return strings.TrimSuffix(line, "\n")
-	} else {
-		return ""
-	}
-}
 
 func main() {
 	in := bufio.NewReader(os.Stdin)
-	log.Println("Starting client")
+
+	// user info
+	var username string
+	read_line := func(r *bufio.Reader, prompt ...string) string {
+		fmt.Printf("%v | ", username)
+		for _, p := range prompt {
+			fmt.Print(p)
+		}
+		line, err := r.ReadString('\n')
+		if err == nil {
+			return strings.TrimSuffix(line, "\n")
+		} else {
+			return ""
+		}
+	}
+	username = read_line(in, "username: ")
+	url := "https://localhost:8080/messages/" + username
+
+	// client setup
+	fmt.Println("# Starting client")
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, ForceAttemptHTTP2: true,
 	}
 	client := &http.Client{Transport: tr}
 
-	fmt.Print("username: ")
-	var username string
-	username = read_line(in)
-	fmt.Printf("<<%v>>\n", username)
-	post_url := "https://localhost:8080/messages/" + username
-
+	// receive messages
+	pr, _ := io.Pipe()
+	req, _ := http.NewRequest("GET", url, ioutil.NopCloser(pr))
+	resp, _ := client.Do(req)
 	go func() {
 		for {
-			resp, err := client.Get(post_url)
-			if resp != nil {
-				bytes_message, _ := ioutil.ReadAll(resp.Body)
-				if len(bytes_message) > 0 {
-					text_message := string(bytes_message)
-					fmt.Println(text_message)
-					fmt.Print("~ ")
-				}
-			} else {
-				fmt.Println("ERROR:", err)
-				fmt.Print("~ ")
+			b := make([]byte, 1024)
+			n, _ := resp.Body.Read(b)
+			if n > 0 {
+				fmt.Println("~ " + string(b))
 			}
-			time.Sleep(time.Second)
 		}
 	}()
 
+	// user interaction loop
 	var to string
-
 	for {
 		var message string
-		fmt.Print("~ ")
 
 		message = read_line(in)
 		if message == "/q" {
@@ -71,17 +69,16 @@ func main() {
 		}
 
 		if to == "" {
-			fmt.Println("Try /t some_user_name, to talk to someone")
+			fmt.Println("# Try /t some_user_name, to talk to someone")
 			continue
 		}
 
-		req, _ := http.NewRequest("POST", post_url, strings.NewReader(message))
-		req.Header.Add("Chat-From", username) // this is reduntant
+		req, _ := http.NewRequest("POST", url, strings.NewReader(message))
 		req.Header.Add("Chat-To", to)
 
 		_, err := client.Do(req)
 		if err != nil {
-			log.Println("ERROR: ", err)
+			fmt.Println("# ERROR: ", err)
 		}
 	}
 }
