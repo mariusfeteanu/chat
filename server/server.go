@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
+
 	//"html"
 	//"fmt"
 	"io/ioutil"
@@ -38,13 +40,6 @@ func main() {
 	}()
 
 	http.HandleFunc("/messages/", func(w http.ResponseWriter, r *http.Request) {
-		if pusher, ok := w.(http.Pusher); ok {
-			log.Println("Pushing")
-			pusher.Push("hello", nil)
-		} else {
-			log.Println("Can't push")
-		}
-
 		if r.Method == "POST" {
 			message_bytes, _ := ioutil.ReadAll(r.Body)
 			msg := message{
@@ -63,8 +58,26 @@ func main() {
 				text_message := "[" + msg.from + "]: " + msg.content
 				w.Write([]byte(text_message))
 			default:
+				if pusher, ok := w.(http.Pusher); ok {
+					log.Println("Pushing")
+					err := pusher.Push("/pull", nil)
+					if err != nil {
+						log.Println(fmt.Sprintf("Push Error: %v", err))
+					}
+				} else {
+					log.Println("Can't push")
+				}
+				w.Write([]byte("nothing"))
 				return
 			}
+		}
+	})
+
+	http.HandleFunc("/pull", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("pull")
+		if r.Method == "GET" {
+			log.Println("pull: get")
+			w.Write([]byte("my finger"))
 		}
 	})
 
