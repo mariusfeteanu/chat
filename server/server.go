@@ -1,14 +1,11 @@
 package main
 
 import (
-	"fmt"
-	"net/http"
-
-	//"html"
-	//"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"strings"
+	"sync"
 )
 
 type message struct {
@@ -25,59 +22,51 @@ type user_message struct {
 func main() {
 	log.Println("Starting server")
 
-	all_incoming := make(chan message, 10)
-	user_messages := make(map[string](chan user_message))
-	go func() {
-		for {
-			msg := <-all_incoming
-			user_channel, ok := user_messages[msg.to]
-			if !ok {
+	var user_channels sync.Map
+
+	http.HandleFunc("/messages/", func(w http.ResponseWriter, r *http.Request) {
+		path_parts := strings.Split(r.URL.Path, "/")
+		username := path_parts[len(path_parts)-1]
+
+		if r.Method == "POST" {
+			to := r.Header.Get("Chat-To")
+			log.Println("[" + username + "] -> [" + to + "]")
+			message_bytes, _ := ioutil.ReadAll(r.Body)
+			msg := message{
+				username,
+				to,
+				string(message_bytes)}
+
+			var user_channel chan user_message
+			hope_user_channel, exists := user_channels.Load(msg.to)
+			if !exists {
 				user_channel = make(chan user_message, 100)
-				user_messages[msg.to] = user_channel
+				user_channels.Store(msg.to, user_channel)
+			} else {
+				user_channel = hope_user_channel.(chan user_message)
 			}
 			user_channel <- user_message{msg.from, msg.content}
 		}
-	}()
-
-	http.HandleFunc("/messages/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "POST" {
-			message_bytes, _ := ioutil.ReadAll(r.Body)
-			msg := message{
-				r.Header.Get("Chat-From"),
-				r.Header.Get("Chat-To"),
-				string(message_bytes)}
-			all_incoming <- msg
-		}
 
 		if r.Method == "GET" {
-			path_parts := strings.Split(r.URL.Path, "/")
-			username := path_parts[len(path_parts)-1]
-
-			select {
-			case msg := <-user_messages[username]:
-				text_message := "[" + msg.from + "]: " + msg.content
-				w.Write([]byte(text_message))
-			default:
-				if pusher, ok := w.(http.Pusher); ok {
-					log.Println("Pushing")
-					err := pusher.Push("/pull", nil)
-					if err != nil {
-						log.Println(fmt.Sprintf("Push Error: %v", err))
-					}
-				} else {
-					log.Println("Can't push")
+			log.Println("getting messages for " + username)
+			flusher, _ := w.(http.Flusher)
+			flusher.Flush()
+			for {
+				hope_user_channel, exists := user_channels.Load(username)
+				if !exists { // it's fine, no messages yet
+					continue
 				}
-				w.Write([]byte("nothing"))
-				return
+				user_channel := hope_user_channel.(chan user_message)
+				select {
+				case msg := <-user_channel:
+					text_message := "[" + msg.from + "]: " + msg.content
+					w.Write([]byte(text_message))
+					flusher.Flush()
+				default:
+					continue
+				}
 			}
-		}
-	})
-
-	http.HandleFunc("/pull", func(w http.ResponseWriter, r *http.Request) {
-		log.Println("pull")
-		if r.Method == "GET" {
-			log.Println("pull: get")
-			w.Write([]byte("my finger"))
 		}
 	})
 
