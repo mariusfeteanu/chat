@@ -64,22 +64,17 @@ func main() {
 					user_channel = hope_user_channel.(chan user_message)
 				}
 				for {
-					select {
-					case msg := <-user_channel:
-						text_message := msg.from + " |< " + msg.content + "\n"
-						_, err := w.Write([]byte(text_message))
-						if err == nil {
-							log.Println("[" + username + "] <- [" + msg.from + "]")
-							flusher.Flush()
-						} else {
-							log.Println("disconnected " + username)
-							return
-						}
-					default:
-						continue
+					msg := <-user_channel
+					text_message := msg.from + " |< " + msg.content + "\n"
+					_, err := w.Write([]byte(text_message))
+					if err == nil {
+						log.Println("[" + username + "] <- [" + msg.from + "]")
+						flusher.Flush()
+					} else {
+						log.Println("disconnected " + username)
+						return
 					}
 				}
-
 			}()
 			for {
 				time.Sleep(time.Second)
