@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 type message struct {
@@ -52,21 +53,36 @@ func main() {
 			log.Println("getting messages for " + username)
 			flusher, _ := w.(http.Flusher)
 			flusher.Flush()
-			for {
+
+			go func() {
+				var user_channel chan user_message
 				hope_user_channel, exists := user_channels.Load(username)
-				if !exists { // it's fine, no messages yet
-					continue
+				if !exists {
+					user_channel = make(chan user_message, 100)
+					user_channels.Store(username, user_channel)
+				} else {
+					user_channel = hope_user_channel.(chan user_message)
 				}
-				user_channel := hope_user_channel.(chan user_message)
-				select {
-				case msg := <-user_channel:
-					log.Println("[" + username + "] <- [" + msg.from + "]")
-					text_message := msg.from + " |< " + msg.content + "\n"
-					w.Write([]byte(text_message))
-					flusher.Flush()
-				default:
-					continue
+				for {
+					select {
+					case msg := <-user_channel:
+						text_message := msg.from + " |< " + msg.content + "\n"
+						_, err := w.Write([]byte(text_message))
+						if err == nil {
+							log.Println("[" + username + "] <- [" + msg.from + "]")
+							flusher.Flush()
+						} else {
+							log.Println("disconnected " + username)
+							return
+						}
+					default:
+						continue
+					}
 				}
+
+			}()
+			for {
+				time.Sleep(time.Second)
 			}
 		}
 	})
