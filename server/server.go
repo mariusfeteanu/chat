@@ -15,9 +15,9 @@ type message struct {
 	Content string
 }
 
-type userContext struct {
-	User        string
-	allChannels *sync.Map
+type userChannel struct {
+	User    string
+	Channel chan message
 }
 
 func main() {
@@ -32,14 +32,15 @@ func main() {
 		if r.Method == "POST" {
 			to := r.Header.Get("Chat-To")
 			message, _ := ioutil.ReadAll(r.Body)
-			userContext{to, &channels}.send(user, message)
+			uch := ensureUserChannel(&channels, to)
+			uch.send(user, message)
 		}
 
 		if r.Method == "GET" {
 			log.Println("getting messages for " + user)
-			ctx := userContext{user, &channels}
-			go ctx.receive(w)
-			ctx.keepAlive(w)
+			uch := ensureUserChannel(&channels, user)
+			go uch.receive(w)
+			uch.keepAlive(w)
 		}
 	})
 
@@ -48,21 +49,22 @@ func main() {
 	log.Fatal(http.ListenAndServeTLS(":8080", certFile, keyFile, nil))
 }
 
-func (uch userContext) incomingCh() (ch chan message) {
-	someChannel, exists := uch.allChannels.Load(uch.User)
+func ensureUserChannel(channels *sync.Map, user string) (uch userChannel) {
+	someChannel, exists := channels.Load(user)
+	var ch chan message
 	if !exists {
 		ch = make(chan message, 100)
-		uch.allChannels.Store(uch.User, ch)
+		channels.Store(uch.User, ch)
 	} else {
 		ch = someChannel.(chan message)
 	}
-	return ch
+	return userChannel{user, ch}
 }
 
-func (uch userContext) receive(w http.ResponseWriter) {
+func (uch userChannel) receive(w http.ResponseWriter) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Println("disconnected (receive goroutine): " + uch.User)
+			log.Println("disconnected (receive panic): " + uch.User)
 		}
 	}()
 
@@ -70,28 +72,26 @@ func (uch userContext) receive(w http.ResponseWriter) {
 	f.Flush()
 
 	for {
-		ch := uch.incomingCh()
-		msg := <-ch
+		msg := <-uch.Channel
 		jsonBytes, _ := json.Marshal(msg)
 		_, err := w.Write(jsonBytes)
 		if err == nil {
 			f.Flush()
 		} else {
-			log.Println("disconnected : " + uch.User)
+			log.Println("disconnected (receive): " + uch.User)
 			return
 		}
 	}
 }
 
-func (uch userContext) send(from string, msg []byte) {
-	ch := uch.incomingCh()
-	ch <- message{from, string(msg)}
+func (uch userChannel) send(from string, msg []byte) {
+	uch.Channel <- message{from, string(msg)}
 }
 
-func (uch userContext) keepAlive(w http.ResponseWriter) {
+func (uch userChannel) keepAlive(w http.ResponseWriter) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Println("disconnected (receive goroutine): " + uch.User)
+			log.Println("disconnected (keep alive panic): " + uch.User)
 		}
 	}()
 
@@ -101,8 +101,8 @@ func (uch userContext) keepAlive(w http.ResponseWriter) {
 	for {
 		js, err := json.Marshal(nil)
 		if err != nil {
-			log.Fatalf("disconnected (error): %v", err)
-			return
+			log.Fatalf("disconnected (heartbeat error): %v", err)
+			panic(err)
 		}
 		_, err = w.Write(js)
 		if err == nil {
