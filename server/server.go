@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -9,15 +10,15 @@ import (
 	"time"
 )
 
-type message struct {
-	from    string
-	to      string
-	content string
+type Message struct {
+	From    string
+	To      string
+	Content string
 }
 
-type user_message struct {
-	from    string
-	content string
+type UserMessage struct {
+	From    string
+	Content string
 }
 
 func main() {
@@ -33,20 +34,20 @@ func main() {
 			to := r.Header.Get("Chat-To")
 			log.Println("[" + username + "] -> [" + to + "]")
 			message_bytes, _ := ioutil.ReadAll(r.Body)
-			msg := message{
+			msg := Message{
 				username,
 				to,
 				string(message_bytes)}
 
-			var user_channel chan user_message
-			hope_user_channel, exists := user_channels.Load(msg.to)
+			var user_channel chan UserMessage
+			hope_user_channel, exists := user_channels.Load(msg.To)
 			if !exists {
-				user_channel = make(chan user_message, 100)
-				user_channels.Store(msg.to, user_channel)
+				user_channel = make(chan UserMessage, 100)
+				user_channels.Store(msg.To, user_channel)
 			} else {
-				user_channel = hope_user_channel.(chan user_message)
+				user_channel = hope_user_channel.(chan UserMessage)
 			}
-			user_channel <- user_message{msg.from, msg.content}
+			user_channel <- UserMessage{msg.From, msg.Content}
 		}
 
 		if r.Method == "GET" {
@@ -55,28 +56,39 @@ func main() {
 			flusher.Flush()
 
 			go func() {
-				var user_channel chan user_message
+				var user_channel chan UserMessage
 				hope_user_channel, exists := user_channels.Load(username)
 				if !exists {
-					user_channel = make(chan user_message, 100)
+					user_channel = make(chan UserMessage, 100)
 					user_channels.Store(username, user_channel)
 				} else {
-					user_channel = hope_user_channel.(chan user_message)
+					user_channel = hope_user_channel.(chan UserMessage)
 				}
 				for {
 					msg := <-user_channel
-					text_message := msg.from + " |< " + msg.content + "\n"
-					_, err := w.Write([]byte(text_message))
+					json_bytes, _ := json.Marshal(msg)
+					_, err := w.Write(json_bytes)
 					if err == nil {
-						log.Println("[" + username + "] <- [" + msg.from + "]")
 						flusher.Flush()
 					} else {
-						log.Println("disconnected " + username)
+						log.Println("disconnected : " + username)
 						return
 					}
 				}
 			}()
+
 			for {
+				json_bytes, json_error := json.Marshal(nil)
+				if json_error != nil {
+					log.Println(json_error)
+				}
+				_, err := w.Write(json_bytes)
+				if err == nil {
+					flusher.Flush()
+				} else {
+					log.Println("disconnected (heartbeat) : " + username)
+					return
+				}
 				time.Sleep(time.Second)
 			}
 		}

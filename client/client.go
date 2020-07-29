@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -47,7 +48,18 @@ func main() {
 			b := make([]byte, 1024)
 			n, _ := resp.Body.Read(b)
 			if n > 0 {
-				fmt.Printf("\n%v%v |> ", string(b), username)
+				var message map[string]interface{}
+				err := json.Unmarshal(b[:n], &message)
+				if err != nil {
+					fmt.Println("ERROR:", err, fmt.Sprintf("<%v>", string(b)))
+				}
+				if message != nil {
+					fmt.Printf(
+						"\n%v |< %v\n%v |> ",
+						message["From"],
+						message["Content"],
+						username)
+				}
 			}
 		}
 	}()
