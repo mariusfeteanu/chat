@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -24,7 +25,7 @@ func main() {
 		}
 		line, err := r.ReadString('\n')
 		if err == nil {
-			return strings.TrimSuffix(line, "\n")
+			return strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 		} else {
 			return ""
 		}
@@ -41,8 +42,16 @@ func main() {
 
 	// receive messages
 	pr, _ := io.Pipe()
-	req, _ := http.NewRequest("GET", url, ioutil.NopCloser(pr))
-	resp, _ := client.Do(req)
+	req, err := http.NewRequest("GET", url, ioutil.NopCloser(pr))
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
 	go func() {
 		for {
 			b := make([]byte, 1024)

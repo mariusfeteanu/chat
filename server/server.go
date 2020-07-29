@@ -10,13 +10,13 @@ import (
 	"time"
 )
 
-type Message struct {
+type message struct {
 	From    string
 	To      string
 	Content string
 }
 
-type UserMessage struct {
+type userMessage struct {
 	From    string
 	Content string
 }
@@ -24,30 +24,30 @@ type UserMessage struct {
 func main() {
 	log.Println("Starting server")
 
-	var user_channels sync.Map
+	var userChannels sync.Map
 
 	http.HandleFunc("/messages/", func(w http.ResponseWriter, r *http.Request) {
-		path_parts := strings.Split(r.URL.Path, "/")
-		username := path_parts[len(path_parts)-1]
+		pathParts := strings.Split(r.URL.Path, "/")
+		username := pathParts[len(pathParts)-1]
 
 		if r.Method == "POST" {
 			to := r.Header.Get("Chat-To")
 			log.Println("[" + username + "] -> [" + to + "]")
-			message_bytes, _ := ioutil.ReadAll(r.Body)
-			msg := Message{
+			messageBytes, _ := ioutil.ReadAll(r.Body)
+			msg := message{
 				username,
 				to,
-				string(message_bytes)}
+				string(messageBytes)}
 
-			var user_channel chan UserMessage
-			hope_user_channel, exists := user_channels.Load(msg.To)
+			var userChannel chan userMessage
+			hopeUserChannel, exists := userChannels.Load(msg.To)
 			if !exists {
-				user_channel = make(chan UserMessage, 100)
-				user_channels.Store(msg.To, user_channel)
+				userChannel = make(chan userMessage, 100)
+				userChannels.Store(msg.To, userChannel)
 			} else {
-				user_channel = hope_user_channel.(chan UserMessage)
+				userChannel = hopeUserChannel.(chan userMessage)
 			}
-			user_channel <- UserMessage{msg.From, msg.Content}
+			userChannel <- userMessage{msg.From, msg.Content}
 		}
 
 		if r.Method == "GET" {
@@ -56,18 +56,23 @@ func main() {
 			flusher.Flush()
 
 			go func() {
-				var user_channel chan UserMessage
-				hope_user_channel, exists := user_channels.Load(username)
+				defer func() {
+					if r := recover(); r != nil {
+						log.Println("disconnected (receive goroutine): " + username)
+					}
+				}()
+				var userChannel chan userMessage
+				hopeUserChannel, exists := userChannels.Load(username)
 				if !exists {
-					user_channel = make(chan UserMessage, 100)
-					user_channels.Store(username, user_channel)
+					userChannel = make(chan userMessage, 100)
+					userChannels.Store(username, userChannel)
 				} else {
-					user_channel = hope_user_channel.(chan UserMessage)
+					userChannel = hopeUserChannel.(chan userMessage)
 				}
 				for {
-					msg := <-user_channel
-					json_bytes, _ := json.Marshal(msg)
-					_, err := w.Write(json_bytes)
+					msg := <-userChannel
+					jsonBytes, _ := json.Marshal(msg)
+					_, err := w.Write(jsonBytes)
 					if err == nil {
 						flusher.Flush()
 					} else {
@@ -78,11 +83,11 @@ func main() {
 			}()
 
 			for {
-				json_bytes, json_error := json.Marshal(nil)
-				if json_error != nil {
-					log.Println(json_error)
+				jsonBytes, jsonError := json.Marshal(nil)
+				if jsonError != nil {
+					log.Println(jsonError)
 				}
-				_, err := w.Write(json_bytes)
+				_, err := w.Write(jsonBytes)
 				if err == nil {
 					flusher.Flush()
 				} else {
@@ -94,7 +99,7 @@ func main() {
 		}
 	})
 
-	cert_file := "server.crt"
-	key_file := "server.key"
-	log.Fatal(http.ListenAndServeTLS(":8080", cert_file, key_file, nil))
+	certFile := "server.crt"
+	keyFile := "server.key"
+	log.Fatal(http.ListenAndServeTLS(":8080", certFile, keyFile, nil))
 }
