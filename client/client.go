@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -21,103 +20,118 @@ func main() {
 
 	// user info
 	var username string
-	read_line := func(r *bufio.Reader, prompt ...string) string {
-		fmt.Printf("%v |> ", username)
-		for _, p := range prompt {
-			fmt.Print(p)
-		}
-		line, err := r.ReadString('\n')
-		if err == nil {
-			return strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
-		} else {
-			return ""
-		}
-	}
-	username = read_line(in, "username: ")
+	prompt()
+	username = readLine(in, "username: ")
 	url := "https://localhost:8080/messages/" + username
 
-	// client setup
-	fmt.Println("# Starting client")
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, ForceAttemptHTTP2: true,
-	}
-	client := &http.Client{Transport: tr}
+	// http client
+	client := createClient()
 
-	// receive messages
-	pr, _ := io.Pipe()
-	req, err := http.NewRequest("GET", url, ioutil.NopCloser(pr))
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-
-	go func() {
-		buff := make([]byte, 1024)
-		for {
-			n, rerr := resp.Body.Read(buff)
-			if rerr != nil {
-				panic(rerr)
-			}
-			raw := buff[:n]
-
-			rawMessages := bytes.Split(raw, []byte{heartbyte})
-
-			for _, rawm := range rawMessages {
-
-				if len(rawm) == 0 { // heartbeat
-					continue
-				}
-
-				if n > 0 {
-					var message map[string]interface{}
-					err := json.Unmarshal(rawm, &message)
-					if err != nil {
-						fmt.Println("ERROR:", err, fmt.Sprintf("<%v>", string(rawm)))
-					}
-					if message != nil {
-						fmt.Printf(
-							"\n%v |< %v\n%v |> ",
-							message["From"],
-							message["Content"],
-							username)
-					}
-				}
-			}
-		}
-	}()
+	// start receiving messages
+	go receive(url, client)
 
 	// user interaction loop
 	var to string
 	for {
 		var message string
+		message = readLine(in)
 
-		message = read_line(in)
 		if message == "/q" {
 			break
 		}
 
 		if strings.HasPrefix(message, "/t") {
 			to = message[3:]
-			fmt.Println(fmt.Sprintf("# sending to: <<%v>>", to))
+			info(fmt.Sprintf("sending to: <<%v>>", to))
 			continue
 		}
 
 		if to == "" {
-			fmt.Println("# Try /t some_user_name, to talk to someone")
+			info("try /t some_user_name, to talk to someone")
 			continue
 		}
 
+		prompt()
 		req, _ := http.NewRequest("POST", url, strings.NewReader(message))
 		req.Header.Add("Chat-To", to)
 
 		_, err := client.Do(req)
 		if err != nil {
-			fmt.Println("# ERROR: ", err)
+			info(fmt.Sprintf("ERROR: %v", err))
 		}
 	}
+}
+
+func readLine(r *bufio.Reader, prompts ...string) string {
+	for _, p := range prompts {
+		fmt.Print(p)
+	}
+	line, err := r.ReadString('\n')
+	if err != nil {
+		panic(err)
+	}
+	return strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+}
+
+func info(msg string) {
+	fmt.Println("# " + msg)
+	prompt()
+}
+
+func prompt() {
+	fmt.Print("~ ")
+}
+
+func receive(url string, client *http.Client) {
+	pr, _ := io.Pipe()
+	req, err := http.NewRequest("GET", url, ioutil.NopCloser(pr))
+	if err != nil {
+		panic(err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+
+	buff := make([]byte, 1024)
+	for {
+		n, rerr := resp.Body.Read(buff)
+		if rerr != nil {
+			panic(rerr)
+		}
+		raw := buff[:n]
+
+		rawMessages := bytes.Split(raw, []byte{heartbyte})
+
+		for _, rawm := range rawMessages {
+
+			if len(rawm) == 0 { // heartbeat
+				continue
+			}
+
+			if n > 0 {
+				var message map[string]interface{}
+				err := json.Unmarshal(rawm, &message)
+				if err != nil {
+					fmt.Println("ERROR:", err, fmt.Sprintf("<%v>", string(rawm)))
+				}
+				if message != nil {
+					fmt.Printf(
+						"[%v]: %v\n",
+						message["From"],
+						message["Content"])
+					prompt()
+				}
+			}
+		}
+	}
+}
+
+func createClient() *http.Client {
+	info("starting client")
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, ForceAttemptHTTP2: true,
+	}
+	client := &http.Client{Transport: tr}
+	return client
 }
