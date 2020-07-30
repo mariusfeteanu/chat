@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"os"
 	"strings"
 )
+
+var heartbyte = byte(0)
 
 func main() {
 	in := bufio.NewReader(os.Stdin)
@@ -62,22 +65,27 @@ func main() {
 			}
 			raw := buff[:n]
 
-			if n > 0 && string(raw[0]) == "." { // heartbeat
-				continue
-			}
+			rawMessages := bytes.Split(raw, []byte{heartbyte})
 
-			if n > 0 {
-				var message map[string]interface{}
-				err := json.Unmarshal(raw, &message)
-				if err != nil {
-					fmt.Println("ERROR:", err, fmt.Sprintf("<%v>", string(raw)))
+			for _, rawm := range rawMessages {
+
+				if len(rawm) == 0 { // heartbeat
+					continue
 				}
-				if message != nil {
-					fmt.Printf(
-						"\n%v |< %v\n%v |> ",
-						message["From"],
-						message["Content"],
-						username)
+
+				if n > 0 {
+					var message map[string]interface{}
+					err := json.Unmarshal(rawm, &message)
+					if err != nil {
+						fmt.Println("ERROR:", err, fmt.Sprintf("<%v>", string(rawm)))
+					}
+					if message != nil {
+						fmt.Printf(
+							"\n%v |< %v\n%v |> ",
+							message["From"],
+							message["Content"],
+							username)
+					}
 				}
 			}
 		}

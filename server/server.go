@@ -20,6 +20,8 @@ type userChannel struct {
 	Channel chan message
 }
 
+var heartbyte = byte(0)
+
 func main() {
 	log.Println("Starting server")
 
@@ -76,6 +78,7 @@ func (uch userChannel) receive(w http.ResponseWriter) {
 	for {
 		msg := <-uch.Channel
 		jsonBytes, _ := json.Marshal(msg)
+		jsonBytes = append(jsonBytes, heartbyte)
 		_, err := w.Write(jsonBytes)
 		if err == nil {
 			log.Printf("receving for [%v]\n", uch.User)
@@ -93,7 +96,6 @@ func (uch userChannel) send(from string, msg []byte) {
 }
 
 func (uch userChannel) keepAlive(w http.ResponseWriter) {
-	heartbeat := "."
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("disconnected (keep alive panic) [%v]\n", uch.User)
@@ -101,15 +103,14 @@ func (uch userChannel) keepAlive(w http.ResponseWriter) {
 	}()
 
 	f, _ := w.(http.Flusher)
-	w.WriteHeader(http.StatusOK)
 	f.Flush()
 
 	for {
-		_, err := w.Write([]byte(heartbeat))
+		_, err := w.Write([]byte{heartbyte})
 		if err == nil {
 			f.Flush()
 		} else {
-			log.Printf("disconnected (heartbeat) [%v]\n", uch.User)
+			log.Printf("disconnected (heartbyte) [%v]\n", uch.User)
 			return
 		}
 		time.Sleep(time.Second)
