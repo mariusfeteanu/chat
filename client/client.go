@@ -52,15 +52,25 @@ func main() {
 		log.Fatal(err)
 		return
 	}
+
 	go func() {
+		buff := make([]byte, 1024)
 		for {
-			b := make([]byte, 1024)
-			n, _ := resp.Body.Read(b)
+			n, rerr := resp.Body.Read(buff)
+			if rerr != nil {
+				panic(rerr)
+			}
+			raw := buff[:n]
+
+			if n > 0 && string(raw[0]) == "." { // heartbeat
+				continue
+			}
+
 			if n > 0 {
 				var message map[string]interface{}
-				err := json.Unmarshal(b[:n], &message)
+				err := json.Unmarshal(raw, &message)
 				if err != nil {
-					fmt.Println("ERROR:", err, fmt.Sprintf("<%v>", string(b)))
+					fmt.Println("ERROR:", err, fmt.Sprintf("<%v>", string(raw)))
 				}
 				if message != nil {
 					fmt.Printf(

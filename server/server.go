@@ -26,6 +26,7 @@ func main() {
 	var channels sync.Map
 
 	http.HandleFunc("/messages/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("%v: %v", r.Method, r.URL.Path)
 		pathParts := strings.Split(r.URL.Path, "/")
 		user := pathParts[len(pathParts)-1]
 
@@ -37,7 +38,6 @@ func main() {
 		}
 
 		if r.Method == "GET" {
-			log.Println("getting messages for " + user)
 			uch := ensureUserChannel(&channels, user)
 			go uch.receive(w)
 			uch.keepAlive(w)
@@ -54,7 +54,8 @@ func ensureUserChannel(channels *sync.Map, user string) (uch userChannel) {
 	var ch chan message
 	if !exists {
 		ch = make(chan message, 100)
-		channels.Store(uch.User, ch)
+		channels.Store(user, ch)
+		log.Printf("established channel for [%v]\n", user)
 	} else {
 		ch = someChannel.(chan message)
 	}
@@ -64,51 +65,51 @@ func ensureUserChannel(channels *sync.Map, user string) (uch userChannel) {
 func (uch userChannel) receive(w http.ResponseWriter) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Println("disconnected (receive panic): " + uch.User)
+			log.Printf("disconnected (receive panic) [%v]\n", uch.User)
 		}
 	}()
 
 	f, _ := w.(http.Flusher)
 	f.Flush()
 
+	log.Printf("receving messages for [%v]\n", uch.User)
 	for {
 		msg := <-uch.Channel
 		jsonBytes, _ := json.Marshal(msg)
 		_, err := w.Write(jsonBytes)
 		if err == nil {
+			log.Printf("receving for [%v]\n", uch.User)
 			f.Flush()
 		} else {
-			log.Println("disconnected (receive): " + uch.User)
+			log.Printf("disconnected (receive) [%v]\n", uch.User)
 			return
 		}
 	}
 }
 
 func (uch userChannel) send(from string, msg []byte) {
+	log.Printf("sending [%v] -> [%v]\n", from, uch.User)
 	uch.Channel <- message{from, string(msg)}
 }
 
 func (uch userChannel) keepAlive(w http.ResponseWriter) {
+	heartbeat := "."
 	defer func() {
 		if r := recover(); r != nil {
-			log.Println("disconnected (keep alive panic): " + uch.User)
+			log.Printf("disconnected (keep alive panic) [%v]\n", uch.User)
 		}
 	}()
 
 	f, _ := w.(http.Flusher)
+	w.WriteHeader(http.StatusOK)
 	f.Flush()
 
 	for {
-		js, err := json.Marshal(nil)
-		if err != nil {
-			log.Fatalf("disconnected (heartbeat error): %v", err)
-			panic(err)
-		}
-		_, err = w.Write(js)
+		_, err := w.Write([]byte(heartbeat))
 		if err == nil {
 			f.Flush()
 		} else {
-			log.Println("disconnected (heartbeat) : " + uch.User)
+			log.Printf("disconnected (heartbeat) [%v]\n", uch.User)
 			return
 		}
 		time.Sleep(time.Second)
