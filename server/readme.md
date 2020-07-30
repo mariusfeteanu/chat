@@ -1,7 +1,6 @@
+Keys required for tls
+
 ```shell
-export PATH=$PATH:$(dirname $(go list -f '{{.Target}}' .))
-
-
 # Key considerations for algorithm "RSA" ≥ 2048-bit
 openssl genrsa -out server.key 2048
 
