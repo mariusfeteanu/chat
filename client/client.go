@@ -28,7 +28,7 @@ func main() {
 	client := createClient()
 
 	// start receiving messages
-	go receive(url, client)
+	go receive(url, client, showCliMessage)
 
 	// user interaction loop
 	var to string
@@ -82,7 +82,11 @@ func prompt() {
 	fmt.Print("~ ")
 }
 
-func receive(url string, client *http.Client) {
+type HttpClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+func receive(url string, client HttpClient, showFunc func(string, string)) {
 	pr, _ := io.Pipe()
 	req, err := http.NewRequest("GET", url, ioutil.NopCloser(pr))
 	if err != nil {
@@ -97,6 +101,10 @@ func receive(url string, client *http.Client) {
 	for {
 		n, rerr := resp.Body.Read(buff)
 		if rerr != nil {
+			if rerr == io.EOF {
+				info("server disconnected (EOF)")
+				return
+			}
 			panic(rerr)
 		}
 		raw := buff[:n]
@@ -113,18 +121,22 @@ func receive(url string, client *http.Client) {
 				var message map[string]interface{}
 				err := json.Unmarshal(rawm, &message)
 				if err != nil {
-					fmt.Println("ERROR:", err, fmt.Sprintf("<%v>", string(rawm)))
+					panic(err)
 				}
 				if message != nil {
-					fmt.Printf(
-						"[%v]: %v\n",
-						message["From"],
-						message["Content"])
-					prompt()
+					showFunc(message["From"].(string), message["Content"].(string))
 				}
 			}
 		}
 	}
+}
+
+func showCliMessage(from string, content string) {
+	fmt.Printf(
+		"[%v]: %v\n",
+		from,
+		content)
+	prompt()
 }
 
 func createClient() *http.Client {
