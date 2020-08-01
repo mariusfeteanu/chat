@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -40,9 +41,15 @@ func main() {
 		}
 
 		if r.Method == "GET" {
+			fw := assertCanFlush(w)
 			uch := ensureUserChannel(&channels, user)
-			go uch.heartbeat()
-			uch.receive(w)
+			ha := make(chan byte)
+			defer func() {
+				close(ha)
+			}()
+
+			go uch.heartbeat(ha, 1000)
+			uch.receive(fw)
 		}
 	})
 
@@ -64,35 +71,47 @@ func ensureUserChannel(channels *sync.Map, user string) (uch userChannel) {
 	return userChannel{user, ch}
 }
 
-func (uch userChannel) receive(w http.ResponseWriter) {
+type flushWriter interface {
+	io.Writer
+	http.Flusher
+}
+
+func assertCanFlush(w io.Writer) (f flushWriter) {
+	_, cantFlushErr := w.(http.Flusher)
+	if !cantFlushErr {
+		panic(cantFlushErr)
+	}
+	return w.(flushWriter)
+}
+
+func (uch userChannel) receive(fw flushWriter) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("disconnected (receive panic) [%v]\n", uch.User)
 		}
 	}()
 
-	f, _ := w.(http.Flusher)
-	f.Flush()
+	fw.Flush()
 
 	log.Printf("receving messages for [%v]\n", uch.User)
 	for {
 		msg := <-uch.Channel
 		if msg.From == "" {
-			_, err := w.Write([]byte{heartbyte})
+			_, err := fw.Write([]byte{heartbyte})
 			if err != nil {
 				log.Printf("disconnected (heartbeat) [%v]\n", uch.User)
 				return
 			}
-			f.Flush()
+			fw.Flush()
 			continue
 		}
 
 		jsonBytes, _ := json.Marshal(msg)
 		jsonBytes = append(jsonBytes, heartbyte)
-		_, err := w.Write(jsonBytes)
+		_, err := fw.Write(jsonBytes)
 		if err == nil {
 			log.Printf("receving for [%v]\n", uch.User)
-			f.Flush()
+			fw.Flush()
 		} else {
 			log.Printf("disconnected (receive) [%v]\n", uch.User)
 			return
@@ -105,9 +124,15 @@ func (uch userChannel) send(from string, msg []byte) {
 	uch.Channel <- message{from, string(msg)}
 }
 
-func (uch userChannel) heartbeat() {
+func (uch userChannel) heartbeat(ha chan byte, ms uint) {
 	for {
 		uch.Channel <- message{From: "", Content: ""}
-		time.Sleep(time.Second)
+		select {
+		case <-ha:
+			log.Println("hearbeat stopped for: " + uch.User)
+			return
+		default:
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+		}
 	}
 }
