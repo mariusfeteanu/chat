@@ -1,4 +1,4 @@
 client
+!client.go
 server
-server.key
-cert.key
+!server.go

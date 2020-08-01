@@ -41,8 +41,8 @@ func main() {
 
 		if r.Method == "GET" {
 			uch := ensureUserChannel(&channels, user)
-			go uch.receive(w)
-			uch.keepAlive(w)
+			go uch.heartbeat()
+			uch.receive(w)
 		}
 	})
 
@@ -77,6 +77,16 @@ func (uch userChannel) receive(w http.ResponseWriter) {
 	log.Printf("receving messages for [%v]\n", uch.User)
 	for {
 		msg := <-uch.Channel
+		if msg.From == "" {
+			_, err := w.Write([]byte{heartbyte})
+			if err != nil {
+				log.Printf("disconnected (heartbeat) [%v]\n", uch.User)
+				return
+			}
+			f.Flush()
+			continue
+		}
+
 		jsonBytes, _ := json.Marshal(msg)
 		jsonBytes = append(jsonBytes, heartbyte)
 		_, err := w.Write(jsonBytes)
@@ -91,28 +101,13 @@ func (uch userChannel) receive(w http.ResponseWriter) {
 }
 
 func (uch userChannel) send(from string, msg []byte) {
-	log.Printf("sending [%v] -> [%v]\n", from, uch.User)
+	log.Printf("sending from [%v]\n", from)
 	uch.Channel <- message{from, string(msg)}
 }
 
-func (uch userChannel) keepAlive(w http.ResponseWriter) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("disconnected (keep alive panic) [%v]\n", uch.User)
-		}
-	}()
-
-	f, _ := w.(http.Flusher)
-	f.Flush()
-
+func (uch userChannel) heartbeat() {
 	for {
-		_, err := w.Write([]byte{heartbyte})
-		if err == nil {
-			f.Flush()
-		} else {
-			log.Printf("disconnected (heartbyte) [%v]\n", uch.User)
-			return
-		}
+		uch.Channel <- message{From: "", Content: ""}
 		time.Sleep(time.Second)
 	}
 }
