@@ -82,11 +82,11 @@ func prompt() {
 	fmt.Print("~ ")
 }
 
-type HttpClient interface {
+type httpClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-func receive(url string, client HttpClient, showFunc func(string, string)) {
+func receive(url string, client httpClient, showFunc func(string, string)) {
 	pr, _ := io.Pipe()
 	req, err := http.NewRequest("GET", url, ioutil.NopCloser(pr))
 	if err != nil {

@@ -39,7 +39,6 @@ func (c *ClientMock) Do(req *http.Request) (*http.Response, error) {
 
 func TestReceive(t *testing.T) {
 	urlExample := "https://example.com/messages/u1"
-	// toExample := "u2"
 	fromExample := "u1"
 	contentExample := "ohai"
 
