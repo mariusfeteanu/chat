@@ -16,9 +16,14 @@ type message struct {
 	Content string
 }
 
+// type receiveSession struct {
+// 	sync.Mutex
+// }
+
 type userChannel struct {
 	User    string
 	Channel chan message
+	Session chan byte // simulate a session lock using a channel with cap of 1
 }
 
 var heartbyte = byte(0)
@@ -52,7 +57,7 @@ func main() {
 				close(ha)
 			}()
 
-			go uch.heartbeat(ha, 10000)
+			go uch.heartbeat(ha, 1000)
 			uch.receive(fw)
 		}
 	})
@@ -63,16 +68,17 @@ func main() {
 }
 
 func ensureUserChannel(channels *sync.Map, user string) (uch userChannel) {
-	someChannel, exists := channels.Load(user)
-	var ch chan message
+	someUserChannel, exists := channels.Load(user)
 	if !exists {
-		ch = make(chan message, 100)
-		channels.Store(user, ch)
+		ch := make(chan message, 100)
+		session := make(chan byte, 1)
+		uch = userChannel{user, ch, session}
+		channels.Store(user, uch)
 		log.Printf("established channel for [%v]\n", user)
 	} else {
-		ch = someChannel.(chan message)
+		uch = someUserChannel.(userChannel)
 	}
-	return userChannel{user, ch}
+	return uch
 }
 
 type flushWriter interface {
@@ -95,9 +101,22 @@ func (uch userChannel) receive(fw flushWriter) {
 		}
 	}()
 
+	select {
+	case <-uch.Session:
+		log.Printf("there is another session from user %v, quitting\n", uch.User)
+		uch.Session <- heartbyte
+		return
+	default:
+		log.Printf("receving messages for [%v]\n", uch.User)
+		uch.Session <- heartbyte
+		defer func() {
+			log.Printf("releasing session for [%v]\n", uch.User)
+			<-uch.Session
+		}()
+	}
+
 	fw.Flush()
 
-	log.Printf("receving messages for [%v]\n", uch.User)
 	for msg := range uch.Channel {
 		if msg.Content == "\x04" {
 			log.Printf("quitting [%v]\n", uch.User)

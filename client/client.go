@@ -111,7 +111,7 @@ func receive(url string, client httpClient, showFunc func(string, string)) {
 		if rerr != nil {
 			if rerr == io.EOF {
 				info("server disconnected (EOF)")
-				return
+				os.Exit(1)
 			}
 			panic(rerr)
 		}
