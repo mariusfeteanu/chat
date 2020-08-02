@@ -35,9 +35,13 @@ func main() {
 
 		if r.Method == "POST" {
 			to := r.Header.Get("Chat-To")
-			message, _ := ioutil.ReadAll(r.Body)
+			msg, _ := ioutil.ReadAll(r.Body)
 			uch := ensureUserChannel(&channels, to)
-			uch.send(user, message)
+			if to != user && len(msg) == 1 && msg[0] == '\x04' {
+				log.Printf("quit message sent by user %v on channel for user %v\n", user, to)
+				return
+			}
+			uch.send(user, msg)
 		}
 
 		if r.Method == "GET" {
@@ -48,7 +52,7 @@ func main() {
 				close(ha)
 			}()
 
-			go uch.heartbeat(ha, 1000)
+			go uch.heartbeat(ha, 10000)
 			uch.receive(fw)
 		}
 	})
@@ -94,12 +98,15 @@ func (uch userChannel) receive(fw flushWriter) {
 	fw.Flush()
 
 	log.Printf("receving messages for [%v]\n", uch.User)
-	for {
-		msg := <-uch.Channel
+	for msg := range uch.Channel {
+		if msg.Content == "\x04" {
+			log.Printf("quitting [%v]\n", uch.User)
+			return
+		}
 		if msg.From == "" {
 			_, err := fw.Write([]byte{heartbyte})
 			if err != nil {
-				log.Printf("disconnected (heartbeat) [%v]\n", uch.User)
+				log.Printf("disconnected (%v) [%v]\n", msg.Content, uch.User)
 				return
 			}
 			fw.Flush()
@@ -126,7 +133,7 @@ func (uch userChannel) send(from string, msg []byte) {
 
 func (uch userChannel) heartbeat(ha chan byte, ms uint) {
 	for {
-		uch.Channel <- message{From: "", Content: ""}
+		uch.Channel <- message{From: "", Content: "heartbeat"}
 		select {
 		case <-ha:
 			log.Println("hearbeat stopped for: " + uch.User)

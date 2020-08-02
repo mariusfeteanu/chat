@@ -37,6 +37,14 @@ func main() {
 		message = readLine(in)
 
 		if message == "/q" {
+			info("quitting")
+			req, _ := http.NewRequest("POST", url, bytes.NewReader([]byte{'\x04'})) // END OF TRANSMISSION
+			req.Header.Add("Chat-To", username)
+
+			_, err := client.Do(req)
+			if err != nil {
+				info(fmt.Sprintf("ERROR: %v", err))
+			}
 			break
 		}
 
